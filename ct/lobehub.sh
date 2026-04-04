@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVED/main/misc/build.func)
+
 # Copyright (c) 2021-2026 community-scripts ORG
 # Author: MickLesk (CanbiZ)
-# License: MIT | https://github.com/community-scripts/ProxmoxVED/raw/main/LICENSE
+# Modified: Increased Node.js heap size to prevent build OOM
+# License: MIT
 # Source: https://github.com/lobehub/lobehub
 
 APP="LobeHub"
 var_tags="${var_tags:-ai;chat}"
 var_cpu="${var_cpu:-6}"
-var_ram="${var_ram:-10240}"
+var_ram="${var_ram:-16384}"   # ⬅️ verhoogd naar 16GB
 var_disk="${var_disk:-15}"
 var_os="${var_os:-debian}"
 var_version="${var_version:-13}"
@@ -47,14 +49,23 @@ function update_script() {
 
     msg_info "Building Application"
     cd /opt/lobehub
-    export NODE_OPTIONS="--max-old-space-size=32768"
+
+    # 🔥 Force Node memory (belangrijk!)
+    export NODE_OPTIONS="--max-old-space-size=12288"
+
+    # Debug (optioneel, laat zien of het werkt)
+    node -e "console.log('NODE_OPTIONS:', process.env.NODE_OPTIONS)"
+    node -e "console.log('Heap limit (MB):', require('v8').getHeapStatistics().heap_size_limit / 1024 / 1024)"
+
+    # Install + build (env geforceerd meegeven)
     $STD pnpm install
-    $STD pnpm run build:docker
+    $STD env NODE_OPTIONS="--max-old-space-size=12288" pnpm run build:docker
+
     unset NODE_OPTIONS
+
     msg_ok "Built Application"
 
     msg_info "Running Database Migrations"
-    cd /opt/lobehub
     set -a && source /opt/lobehub/.env && set +a
     $STD node /opt/lobehub/.next/standalone/docker.cjs
     msg_ok "Ran Database Migrations"
@@ -62,6 +73,7 @@ function update_script() {
     msg_info "Starting Services"
     systemctl start lobehub
     msg_ok "Started Services"
+
     msg_ok "Updated successfully!"
   fi
   exit
