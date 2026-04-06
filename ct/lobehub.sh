@@ -12,11 +12,12 @@ source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxV
 # - Reduced build parallelism
 # - Applied NODE_OPTIONS directly to the build command
 # - Avoided $STD for pnpm build commands so environment variables are preserved
+# - Increased Node.js heap size further to prevent OOM during build
 
 APP="LobeHub"
 var_tags="${var_tags:-ai;chat}"
 var_cpu="${var_cpu:-4}"
-var_ram="${var_ram:-16384}"
+var_ram="${var_ram:-24576}"
 var_disk="${var_disk:-15}"
 var_os="${var_os:-debian}"
 var_version="${var_version:-13}"
@@ -24,7 +25,8 @@ var_unprivileged="${var_unprivileged:-1}"
 
 BUILD_LOG="/root/lobehub-build.log"
 SWAPFILE="/swapfile"
-SWAPSIZE="8G"
+SWAPSIZE="12G"
+NODE_HEAP_MB="${NODE_HEAP_MB:-12288}"
 
 header_info "$APP"
 variables
@@ -43,7 +45,7 @@ ensure_swap() {
 
   msg_info "Creating temporary swap (${SWAPSIZE})"
   if ! fallocate -l "${SWAPSIZE}" "${SWAPFILE}" 2>/dev/null; then
-    dd if=/dev/zero of="${SWAPFILE}" bs=1M count=8192 status=progress
+    dd if=/dev/zero of="${SWAPFILE}" bs=1M count=12288 status=progress
   fi
   chmod 600 "${SWAPFILE}"
   mkswap "${SWAPFILE}" >/dev/null
@@ -68,9 +70,10 @@ build_lobehub() {
   export CI=1
   export npm_config_jobs=1
   export NEXT_TELEMETRY_DISABLED=1
-  export NODE_OPTIONS="--max-old-space-size=8192"
+  export NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}"
 
   msg_info "Build environment"
+  echo "NODE_HEAP_MB=${NODE_HEAP_MB}" | tee -a "${BUILD_LOG}"
   echo "NODE_OPTIONS=${NODE_OPTIONS}" | tee -a "${BUILD_LOG}"
   echo "CI=${CI}" | tee -a "${BUILD_LOG}"
   echo "npm_config_jobs=${npm_config_jobs}" | tee -a "${BUILD_LOG}"
@@ -86,7 +89,7 @@ build_lobehub() {
   fi
 
   msg_info "Building application (this can take a while)"
-  NODE_OPTIONS="--max-old-space-size=8192" CI=1 npm_config_jobs=1 pnpm run build:docker 2>&1 | tee -a "${BUILD_LOG}"
+  NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}" CI=1 npm_config_jobs=1 pnpm run build:docker 2>&1 | tee -a "${BUILD_LOG}"
   build_rc=${PIPESTATUS[0]}
   if [ "${build_rc}" -ne 0 ]; then
     msg_error "pnpm run build:docker failed. See ${BUILD_LOG}"
